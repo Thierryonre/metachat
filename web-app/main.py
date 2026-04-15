@@ -74,7 +74,7 @@ materials_cli = MaterialDatabaseCLI(
 # Initialize agent
 from backend.agent.cot_iterative_tools_materials import IterativeAgentToolsMaterials
 from backend.agent.standard_agent_tools import StandardAgentTools
-# 
+#
 agent = IterativeAgentToolsMaterials(model=model)
 # agent = StandardAgentTools(model=model)
 
@@ -85,8 +85,19 @@ class ChatRequest(BaseModel):
 # Add this function to count tokens
 def count_tokens(text: str, model: Optional[str] = None) -> int:
     model_to_use = model or DEFAULT_MODEL_NAME
-    encoding_model = "gpt-5" if model_to_use.startswith("gpt-5") else model_to_use
-    encoding = tiktoken.encoding_for_model(encoding_model)
+
+    # tiktoken doesn't yet know about gpt-5 models, map to gpt-4o/cl100k_base
+    if model_to_use.startswith("gpt-5"):
+        encoding_model = "gpt-4o"
+    else:
+        encoding_model = model_to_use
+
+    try:
+        encoding = tiktoken.encoding_for_model(encoding_model)
+    except KeyError:
+        # Fallback to cl100k_base (used by gpt-4 and newer)
+        encoding = tiktoken.get_encoding("cl100k_base")
+
     return len(encoding.encode(text))
 
 # Add this class to manage conversation history
@@ -94,7 +105,7 @@ class ConversationManager:
     def __init__(self, max_tokens: int = 100000):
         self.conversations: Dict[str, List[Dict[str, Any]]] = {}
         self.max_tokens = max_tokens
-        
+
     def add_message(self, conversation_id: str, role: str, content: str, message_type: str = "chat") -> None:
         """
         Add a message to the conversation history.
@@ -106,7 +117,7 @@ class ConversationManager:
         """
         if conversation_id not in self.conversations:
             self.conversations[conversation_id] = []
-            
+
         message = {
             "role": role,
             "content": content,
@@ -115,7 +126,7 @@ class ConversationManager:
         }
         self.conversations[conversation_id].append(message)
         self._trim_conversation(conversation_id)
-    
+
     def get_conversation(self, conversation_id: str, include_internal: bool = True) -> List[Dict[str, Any]]:
         """
         Get conversation history.
@@ -127,7 +138,7 @@ class ConversationManager:
         if not include_internal:
             return [msg for msg in messages if msg.get("type", "chat") == "chat"]
         return messages
-    
+
     def _trim_conversation(self, conversation_id: str) -> None:
         """
         Trim conversation history to stay within token limit.
@@ -135,7 +146,7 @@ class ConversationManager:
         """
         messages = self.conversations[conversation_id]
         total_tokens = sum(count_tokens(msg["content"]) for msg in messages)
-        
+
         while total_tokens > self.max_tokens and len(messages) > 1:
             # Always keep the system message if it exists
             start_idx = 1 if messages[0]["role"] == "system" else 0
@@ -153,14 +164,14 @@ async def generate_events(agent, message: str, conversation_id: Optional[str] = 
             logger.info(f"Generated new conversation_id: {conversation_id}")
         else:
             logger.info(f"Using existing conversation_id: {conversation_id}")
-            
+
         # Add user message to conversation history
         conversation_manager.add_message(conversation_id, "user", message, "chat")
         logger.debug(f"Added user message to conversation {conversation_id}")
-        
+
         # Get conversation history - include internal thoughts for the agent
         conversation_history = conversation_manager.get_conversation(conversation_id, include_internal=True)
-        
+
         async for status in agent.solve_with_status(
             problem=message,
             problem_id=conversation_id,
@@ -186,7 +197,7 @@ async def generate_events(agent, message: str, conversation_id: Optional[str] = 
                     # Add assistant's response to conversation history
                     conversation_manager.add_message(conversation_id, "assistant", status["solution"], "chat")
                     logger.info(f"Solution generated for conversation {conversation_id}")
-                    
+
                     yield {
                         "event": "message",
                         "data": json.dumps({
@@ -198,7 +209,7 @@ async def generate_events(agent, message: str, conversation_id: Optional[str] = 
                 elif "thinking" in status:
                     # Add internal thought to conversation history
                     conversation_manager.add_message(conversation_id, "assistant", status["thinking"], "internal")
-                    
+
                     yield {
                         "event": "message",
                         "data": json.dumps({
@@ -216,8 +227,8 @@ async def generate_events(agent, message: str, conversation_id: Optional[str] = 
                     "event": "message",
                     "data": json.dumps({"status": str(status)})
                 }
-                
-    except Exception as e:  
+
+    except Exception as e:
         logger.error(f"Error processing chat: {str(e)}")
         yield {
             "event": "message",
@@ -256,7 +267,7 @@ async def read_root():
 @app.get("/ping")
 async def ping(name: str = "Anonymous"):
     logger.info(f"Ping endpoint hit with name: {name}")
-    
+
     try:
         # Run the Docker "Hello World" container
         result = subprocess.run(
@@ -265,7 +276,7 @@ async def ping(name: str = "Anonymous"):
             capture_output=True,  # Captures stdout and stderr
             text=True  # Decodes output to string
         )
-        
+
         # Log and return the output from Docker
         docker_output = result.stdout
         logger.info(f"Docker output: {docker_output}")
@@ -288,14 +299,14 @@ async def download_file(path: str):
     # Base path where design files are stored
     base_path = DESIGN_BASE_PATH
     file_path = os.path.join(base_path, path)
-    
+
     # Check if file exists
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     # Return the file as a download
     return FileResponse(
-        path=file_path, 
+        path=file_path,
         filename=os.path.basename(file_path),
         media_type="application/octet-stream"
     )
