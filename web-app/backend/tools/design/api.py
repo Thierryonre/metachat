@@ -18,7 +18,7 @@ class NeuralDesignAPI:
     def __init__(self, gpu_ids: Optional[List[int]] = None):
         """
         Initialize NeuralDesignAPI.
-        
+
         Args:
             gpu_ids: List of GPU IDs to use. If None, defaults to [0].
         """
@@ -29,10 +29,10 @@ class NeuralDesignAPI:
         self.checkpoint_directory_multisrc = os.getenv("CHECKPOINT_DIRECTORY_MULTISRC")
         self.pytorch_cuda_alloc_conf = os.getenv("PYTORCH_CUDA_ALLOC_CONF")
         self.feature_size_meter = 4e-8
-        
+
         # Initialize the design database
         self.db = DesignDatabase(os.path.join(self.base_path, "designs.db"))
-        
+
     async def _run_in_docker(self, script_content: str, results_dir: str, design_type: str = "deflector") -> AsyncGenerator[Dict[str, Any], None]:
         """
         Run optimization script in Docker container and return results
@@ -44,7 +44,7 @@ class NeuralDesignAPI:
         try:
             # Create temporary directory for results
             os.makedirs(results_dir, exist_ok=True)
-            
+
             # Create temporary Python script
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
                 f.write(script_content)
@@ -55,7 +55,7 @@ class NeuralDesignAPI:
             # Create progress file
             progress_file = f"{results_dir}/progress.txt"
             open(progress_file, 'w').close()  # Create empty file
-            
+
             # Add progress file mount to Docker command
             cmd = [
                 "docker", "run",
@@ -79,14 +79,16 @@ class NeuralDesignAPI:
                 self.docker_image,
                 "python", "run_script.py"
             ]
-            
+
+            print("Docker Command: ", " ".join(cmd))
+
             # Start Docker process
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             # Monitor progress file while Docker is running
             last_progress = ""
             while process.returncode is None:
@@ -99,13 +101,13 @@ class NeuralDesignAPI:
                 except Exception:
                     pass
                 await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
-            
+
             # Read results using the host path based on design type
             plots = {}
             if design_type == "deflector":
                 farfield_path = f"{results_dir}/farfield_intensity.png"
                 device_path = f"{results_dir}/full_pattern.png"
-                
+
                 # Check if files exist before trying to convert them
                 if os.path.exists(farfield_path) and os.path.exists(device_path):
                     plots['farfield_plot'] = self._convert_plot_to_base64(farfield_path)
@@ -121,7 +123,7 @@ class NeuralDesignAPI:
             elif design_type == "single_wavelength":
                 farfield_path = f"{results_dir}/farfield_intensity_wavelength_1.png"
                 device_path = f"{results_dir}/full_pattern.png"
-                
+
                 # Check if files exist before trying to convert them
                 if os.path.exists(farfield_path) and os.path.exists(device_path):
                     plots['farfield_plot'] = self._convert_plot_to_base64(farfield_path)
@@ -138,7 +140,7 @@ class NeuralDesignAPI:
                 farfield_path_1 = f"{results_dir}/farfield_intensity_wavelength_1.png"
                 farfield_path_2 = f"{results_dir}/farfield_intensity_wavelength_2.png"
                 device_path = f"{results_dir}/full_pattern.png"
-                
+
                 # Check if files exist before trying to convert them
                 if os.path.exists(farfield_path_1) and os.path.exists(farfield_path_2) and os.path.exists(device_path):
                     plots['farfield_plot_1'] = self._convert_plot_to_base64(farfield_path_1)
@@ -154,7 +156,7 @@ class NeuralDesignAPI:
                         missing_files.append("full_pattern.png")
                     yield {"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"}
                     return
-            
+
             yield {
                 'success': True,
                 'message': 'Design completed successfully. Generated farfield and device pattern plots.',
@@ -162,7 +164,7 @@ class NeuralDesignAPI:
             }
 
             return
-            
+
         except subprocess.CalledProcessError as e:
             yield {
                 'success': False,
@@ -194,34 +196,34 @@ class NeuralDesignAPI:
     def _convert_to_gds(self, pattern: np.ndarray, feature_size_meter: float, filename: str) -> str:
         """
         Convert numpy array pattern to GDS file
-        
+
         Args:
             pattern: 2D numpy array (binary or continuous) representing the device
             feature_size_meter: Feature size in meters
             filename: Output filename (without extension)
-            
+
         Returns:
             Path to the created GDS file
         """
         # Create a new GDSII library with nm precision
         lib = gdspy.GdsLibrary(precision=1e-9)
-        
+
         # Create a new cell for the device
         cell = lib.new_cell(f'device_{uuid.uuid4().hex[:8]}')
-        
+
         # Convert the pattern to binary if it's not already (using threshold)
         # Assuming air = 1 and material > 1
         binary_pattern = pattern > 1.5  # Threshold between air and material
-        
+
         # The pattern is typically transposed from the simulation output
         binary_pattern = binary_pattern.T
-        
+
         # Feature size in nm
         feature_size_nm = feature_size_meter * 1e9
-        
+
         # Create polygons from the binary pattern using marching squares or similar algorithm
         polygons = []
-        
+
         # Simple rectangle-based approach
         for i in range(binary_pattern.shape[0]):
             for j in range(binary_pattern.shape[1]):
@@ -233,19 +235,19 @@ class NeuralDesignAPI:
                         layer=0
                     )
                     cell.add(rectangle)
-        
+
         # For efficiency with large patterns, we could use a polygon merging approach:
         # merged_polygons = gdspy.boolean(polygons, None, 'or')
         # cell.add(merged_polygons)
-        
+
         # Output path
         gds_path = f"{filename}.gds"
-        
+
         # Write the GDSII file
         lib.write_gds(gds_path)
-        
+
         return gds_path
-    
+
     async def _process_design_results(self, results_dir: str, pattern: np.ndarray) -> Dict[str, Any]:
         """Process design results and create GDS file"""
         # Generate a unique filename with a timestamp
@@ -253,14 +255,14 @@ class NeuralDesignAPI:
         unique_id = uuid.uuid4().hex[:8]
         filename = f"device_{timestamp}_{unique_id}"
         gds_filename = os.path.join(results_dir, filename)
-        
+
         gds_path = self._convert_to_gds(pattern, self.feature_size_meter, gds_filename)
-        
+
         # Create a relative path for the download URL
         # Assuming results are stored in a location accessible via /downloads in the web server
         relative_path = os.path.relpath(gds_path, start=self.base_path)
         download_url = f"/download/{relative_path}"
-        
+
         # Return the path to the GDS file along with other results
         return {
             'success': True,
@@ -268,7 +270,7 @@ class NeuralDesignAPI:
             'download_url': download_url,
             'message': f"Design complete. GDS file created and ready for download."
         }
-    
+
     async def design_metalens(self,
                             refractive_index: list[float],
                             lens_diameter: float,
@@ -291,39 +293,39 @@ class NeuralDesignAPI:
         """
         # Type checking
         type_errors = []
-        
+
         if not isinstance(refractive_index, list) or not all(isinstance(n, (int, float)) for n in refractive_index):
             type_errors.append("refractive_index must be a list of floats")
-        
+
         if not isinstance(lens_diameter, (int, float)):
             type_errors.append("lens_diameter must be a float")
-            
+
         if not isinstance(focal_lengths, list) or not all(isinstance(f, (int, float)) for f in focal_lengths):
             type_errors.append("focal_lengths must be a list of floats")
-            
+
         if not isinstance(focal_x_offsets, list) or not all(isinstance(o, (int, float)) for o in focal_x_offsets):
             type_errors.append("focal_x_offsets must be a list of floats")
-            
+
         if not isinstance(thickness, (int, float)):
             type_errors.append("thickness must be a float")
 
         if not isinstance(feature_size_meter, (int, float)):
             type_errors.append("feature_size_meter must be a float")
-            
+
         if not isinstance(operating_wavelengths, list) or not all(isinstance(w, (int, float)) for w in operating_wavelengths):
             type_errors.append("operating_wavelengths must be a list of floats")
-            
+
         if type_errors:
             yield {
                 'success': False,
-                'error': "Type errors detected:\n- " + "\n- ".join(type_errors) + 
+                'error': "Type errors detected:\n- " + "\n- ".join(type_errors) +
                          "\n\nPlease fix these errors and try again. For example: " +
                          "design_metalens(refractive_indices=[2.0, 2.5], lens_diameter=100e-6, ...)"
             }
             return
-            
+
         # Check that all parameter lists have the same length
-        if not (len(refractive_index) == len(focal_lengths) == 
+        if not (len(refractive_index) == len(focal_lengths) ==
                 len(focal_x_offsets) == len(operating_wavelengths)):
             yield {
                 'success': False,
@@ -339,7 +341,7 @@ class NeuralDesignAPI:
 
         # Define the maximum supported wavelengths
         max_supported_wavelengths = 2
-        
+
         num_wavelengths = len(operating_wavelengths)
         if num_wavelengths > max_supported_wavelengths:
             yield {
@@ -353,7 +355,7 @@ class NeuralDesignAPI:
 
         # Create unique results directory
         results_dir = f"{self.base_path}/results_{os.getpid()}"
-        
+
         # Generate appropriate Python script based on number of wavelengths
         if num_wavelengths == 1:
             script_content = f"""
@@ -418,7 +420,7 @@ full_pattern = dualWavelengthsMetalens(
 np.save('/app/results/full_pattern.npy', full_pattern)
 """
             design_type = "dual_wavelength"
-        
+
         # Execute the script in Docker
         async for result in self._run_in_docker(script_content, results_dir, design_type=design_type):
             if result.get('success', False):
@@ -429,7 +431,7 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                         pattern = np.load(pattern_file)
                         gds_result = await self._process_design_results(results_dir, pattern)
                         result.update(gds_result)
-                        
+
                         # Save the design to the database
                         associated_files = []
                         # Add plot files to associated_files
@@ -453,14 +455,14 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                                     "file_path": os.path.join(results_dir, 'farfield_intensity_wavelength_2.png'),
                                     "description": "Farfield intensity plot (wavelength 2)"
                                 })
-                        
+
                         if os.path.exists(os.path.join(results_dir, 'full_pattern.png')):
                             associated_files.append({
                                 "file_type": "plot",
                                 "file_path": os.path.join(results_dir, 'full_pattern.png'),
                                 "description": "Device pattern plot"
                             })
-                        
+
                         # Store in database
                         design_id = self.db.save_design(
                             design_type="metalens",
@@ -478,10 +480,10 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                             description=f"Metalens with {num_wavelengths} wavelength(s)",
                             associated_files=associated_files
                         )
-                        
+
                         # Add design ID to the result
                         result['design_id'] = design_id
-                        
+
                 except Exception as e:
                     result['gds_error'] = str(e)
             yield result
@@ -508,37 +510,37 @@ np.save('/app/results/full_pattern.npy', full_pattern)
         """
         # Type checking
         type_errors = []
-        
+
         if not isinstance(refractive_index, list) or not all(isinstance(n, (int, float)) for n in refractive_index):
             type_errors.append("refractive_index must be a list of floats")
-        
+
         if not isinstance(length, (int, float)):
             type_errors.append("length must be a float")
-            
+
         if not isinstance(incident_angles, list) or not all(isinstance(a, (int, float)) for a in incident_angles):
             type_errors.append("incident_angles must be a list of floats")
-            
+
         if not isinstance(deflection_angles, list) or not all(isinstance(a, (int, float)) for a in deflection_angles):
             type_errors.append("deflection_angles must be a list of floats")
-            
+
         if not isinstance(thickness, (int, float)):
             type_errors.append("thickness must be a float")
 
         if not isinstance(feature_size_meter, (int, float)):
             type_errors.append("feature_size_meter must be a float")
-            
+
         if not isinstance(operating_wavelength, list) or not all(isinstance(w, (int, float)) for w in operating_wavelength):
             type_errors.append("operating_wavelength must be a list of floats")
-            
+
         if type_errors:
             yield {
                 'success': False,
-                'error': "Type errors detected:\n- " + "\n- ".join(type_errors) + 
+                'error': "Type errors detected:\n- " + "\n- ".join(type_errors) +
                          "\n\nPlease fix these errors and try again. For example: " +
                          "design_deflector(refractive_indices=[2.0], length=100e-6, incident_angles=[0.0], ...)"
             }
             return
-            
+
         # Check that all parameter lists have the same length
         if not (len(refractive_index) == len(incident_angles) == len(deflection_angles)):
             yield {
@@ -561,10 +563,10 @@ np.save('/app/results/full_pattern.npy', full_pattern)
         incident_angle = incident_angles[0]
         deflection_angle = deflection_angles[0]
         material_index = refractive_index
-        
+
         # Create unique results directory
         results_dir = f"{self.base_path}/results_{os.getpid()}"
-        
+
         # Generate Python script content
         script_content = f"""
 import torch
@@ -604,24 +606,24 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                         pattern = np.load(pattern_file)
                         gds_result = await self._process_design_results(results_dir, pattern)
                         result.update(gds_result)
-                        
+
                         # Save the design to the database
                         associated_files = []
-                        
+
                         if os.path.exists(os.path.join(results_dir, 'farfield_intensity.png')):
                             associated_files.append({
                                 "file_type": "plot",
                                 "file_path": os.path.join(results_dir, 'farfield_intensity.png'),
                                 "description": "Farfield intensity plot"
                             })
-                        
+
                         if os.path.exists(os.path.join(results_dir, 'full_pattern.png')):
                             associated_files.append({
                                 "file_type": "plot",
                                 "file_path": os.path.join(results_dir, 'full_pattern.png'),
                                 "description": "Device pattern plot"
                             })
-                        
+
                         # Store in database
                         design_id = self.db.save_design(
                             design_type="deflector",
@@ -638,10 +640,10 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                             description=f"Deflector with incident angle {incident_angles[0]}° and deflection angle {deflection_angles[0]}°",
                             associated_files=associated_files
                         )
-                        
+
                         # Add design ID to the result
                         result['design_id'] = design_id
-                        
+
                 except Exception as e:
                     result['gds_error'] = str(e)
             yield result
@@ -684,12 +686,12 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                     draft=draft
                 ):
                     yield result
-                
+
             elif func_name == 'design_deflector':
                 # Set default value for draft if not provided
                 draft = args.get('draft', False)
                 feature_size_meter = args.get('feature_size_meter', self.feature_size_meter)
-                
+
                 async for result in self.design_deflector(
                     refractive_index=args.get('refractive_index', args.get('refractive_indices')),
                     length=args['length'],
@@ -703,7 +705,7 @@ np.save('/app/results/full_pattern.npy', full_pattern)
                     yield result
             else:
                 raise ValueError(f"Unknown function: {func_name}")
-                
+
         except Exception as e:
             yield {
                 'success': False,
