@@ -58,7 +58,7 @@ class NeuralDesignAPI:
 
             # Add progress file mount to Docker command
             cmd = [
-                "docker", "run",
+                "docker", "--allow-root", "run",
                 "-v", self.media_mount,
                 "-v", f"{script_path}:{self.base_path}/run_script.py",
                 "-v", f"{results_dir}:/app/results",
@@ -72,8 +72,8 @@ class NeuralDesignAPI:
                     if self.pytorch_cuda_alloc_conf
                     else []
                 ),
-                "--gpus", "all",
-                "--shm-size=100GB",
+                # "--gpus", "all",
+                # "--shm-size=100GB",
                 "--rm",
                 "-w", self.base_path,
                 self.docker_image,
