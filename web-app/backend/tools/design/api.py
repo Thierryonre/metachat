@@ -96,6 +96,7 @@ class NeuralDesignAPI:
                     with open(progress_file, 'r') as f:
                         progress = f.read().strip()
                         if progress and progress != last_progress:
+                            print({"status": progress})
                             yield {"status": progress}
                             last_progress = progress
                 except Exception:
@@ -118,6 +119,8 @@ class NeuralDesignAPI:
                         missing_files.append("farfield_intensity.png")
                     if not os.path.exists(device_path):
                         missing_files.append("full_pattern.png")
+
+                    print({"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"})
                     yield {"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"}
                     return
             elif design_type == "single_wavelength":
@@ -134,6 +137,8 @@ class NeuralDesignAPI:
                         missing_files.append("farfield_intensity_wavelength_1.png")
                     if not os.path.exists(device_path):
                         missing_files.append("full_pattern.png")
+
+                    print({"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"})
                     yield {"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"}
                     return
             elif design_type == "dual_wavelength":
@@ -154,8 +159,16 @@ class NeuralDesignAPI:
                         missing_files.append("farfield_intensity_wavelength_2.png")
                     if not os.path.exists(device_path):
                         missing_files.append("full_pattern.png")
+
+                    print({"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"})
                     yield {"success": False, "error": f"Docker process failed: output files not generated - missing {', '.join(missing_files)}"}
                     return
+
+            print({
+                'success': True,
+                'message': 'Design completed successfully. Generated farfield and device pattern plots.',
+                'plots': plots
+            })
 
             yield {
                 'success': True,
@@ -166,6 +179,11 @@ class NeuralDesignAPI:
             return
 
         except subprocess.CalledProcessError as e:
+            print({
+                'success': False,
+                'error': f"Docker execution failed: {str(e)}"
+            })
+
             yield {
                 'success': False,
                 'error': f"Docker execution failed: {str(e)}"
@@ -173,6 +191,11 @@ class NeuralDesignAPI:
 
             return
         except Exception as e:
+            print({
+                'success': False,
+                'error': str(e)
+            })
+
             yield {
                 'success': False,
                 'error': str(e)
