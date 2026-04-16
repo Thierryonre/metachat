@@ -204,8 +204,9 @@ class NeuralDesignAPI:
             return
         finally:
             # Cleanup
-            if os.path.exists(script_path):
-                os.remove(script_path)
+            # if os.path.exists(script_path):
+            #     os.remove(script_path)
+            pass
             # Optionally clean up results directory after processing
             # if os.path.exists(results_dir):
             #     import shutil
